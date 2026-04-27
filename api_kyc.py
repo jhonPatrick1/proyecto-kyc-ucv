@@ -14,20 +14,20 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # El asterisco significa "dejar entrar a cualquier página"
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 1. CONEXIÓN A MONGO DB
+# 1. CONEXIÓN A MONGO DBgit push origin main
 MONGO_URI = "mongodb+srv://jhonpatrickcg_db_user:yHK7MkFlLeULjC23@cluster0.tknyeco.mongodb.net/?appName=Cluster0&tlsAllowInvalidCertificates=true"
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client["zindex_kyc_db"] 
 coleccion = db["registros_dni"] 
 
 # 2. CONFIGURACIÓN IA
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+#pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 model = YOLO("best.pt")
 
 @app.post("/escanear")
