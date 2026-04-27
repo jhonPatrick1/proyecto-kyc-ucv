@@ -8,14 +8,13 @@ from pymongo import MongoClient
 import io
 import certifi
 from PIL import Image, ImageOps
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-from fastapi.middleware.cors import CORSMiddleware
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Permite que cualquier web se conecte
+    allow_origins=["*"], # El asterisco significa "dejar entrar a cualquier página"
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
