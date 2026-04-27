@@ -1,12 +1,13 @@
 FROM python:3.10-slim
 
-# Esta es la linea magica que evita que el servidor haga preguntas
+# Evitamos preguntas interactivas
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Cambiamos libgl1-mesa-glx por libgl1 que es la version actual
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-spa \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     && apt-get clean
 
