@@ -1,0 +1,11 @@
+@"
+fastapi
+uvicorn
+pymongo
+certifi
+pytesseract
+ultralytics
+opencv-python-headless
+python-multipart
+Pillow
+"@ > requirements.txt
