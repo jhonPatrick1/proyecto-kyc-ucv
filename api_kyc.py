@@ -20,14 +20,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 1. CONEXIÓN A MONGO DBgit push origin main
+# 1. CONEXIÓN A MONGO DB
 MONGO_URI = "mongodb+srv://jhonpatrickcg_db_user:yHK7MkFlLeULjC23@cluster0.tknyeco.mongodb.net/?appName=Cluster0&tlsAllowInvalidCertificates=true"
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client["zindex_kyc_db"] 
 coleccion = db["registros_dni"] 
 
 # 2. CONFIGURACIÓN IA
-#pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 model = YOLO("best.pt")
 
 @app.post("/escanear")
@@ -39,7 +39,7 @@ async def escanear_dni(file: UploadFile = File(...)):
     # --- EL FIX PARA CÁMARAS DE CELULARES ---
     # 1. Corregimos si el celular mandó la foto girada (EXIF)
     img = ImageOps.exif_transpose(img)
-    # 2. Achicamos la foto a un máximo de 1200px para que Tesseract no se maree
+    # 2. Achicamos la foto a un máximo de 640px para que Render gratuito no colapse
     img.thumbnail((640, 640))
     # ----------------------------------------
 
@@ -54,16 +54,20 @@ async def escanear_dni(file: UploadFile = File(...)):
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             dni_crop = frame[y1:y2, x1:x2]
 
-            # Preprocesamiento avanzado para OCR
+            # --- FILTROS DE VISIÓN ARTIFICIAL (CORREGIDOS) ---
+            # 1. Blanco y Negro
             gray = cv2.cvtColor(dni_crop, cv2.COLOR_BGR2GRAY)
+            # 2. Ampliamos la imagen al doble
             ampliado = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-            dni_limpio = cv2.convertScaleAbs(ampliado, alpha=1.2, beta=0)
+            # 3. Binarización pura (Umbral 120): Vuelve todo 100% blanco o 100% negro
+            _, dni_limpio = cv2.threshold(ampliado, 120, 255, cv2.THRESH_BINARY)
+            # ------------------------------------------------
 
             # OCR y Limpieza de texto
             texto_crudo = pytesseract.image_to_string(dni_limpio, lang='spa', config='--oem 3 --psm 6')
             texto_limpio = texto_crudo.replace(" ", "").replace("\n", "")
 
-            # --- LÓGICA DE EXTRACCIÓN MEJORADA ---
+            # --- LÓGICA DE EXTRACCIÓN (RECUERDA: ESCANEAR PARTE TRASERA DEL DNI) ---
             
             # 1. DNI y Dígito Verificador (Ej: 72865658<5)
             match_dni = re.search(r'(\d{8})<(\d)', texto_limpio)
