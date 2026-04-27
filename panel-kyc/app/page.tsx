@@ -96,6 +96,7 @@ const API_URL = "https://proyecto-kyc-ucv.onrender.com";
             <input
               type="file"
               accept="image/*"
+              capture="environment"
               ref={fileInputRef}
               onChange={handleEscanear}
               className="hidden"

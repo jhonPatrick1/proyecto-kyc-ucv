@@ -41,7 +41,7 @@ async def escanear_dni(file: UploadFile = File(...)):
     # 1. Corregimos si el celular mandó la foto girada (EXIF)
     img = ImageOps.exif_transpose(img)
     # 2. Achicamos la foto a un máximo de 1200px para que Tesseract no se maree
-    img.thumbnail((1200, 1200))
+    img.thumbnail((640, 640))
     # ----------------------------------------
 
     # Convertimos la imagen corregida para que OpenCV la pueda leer
