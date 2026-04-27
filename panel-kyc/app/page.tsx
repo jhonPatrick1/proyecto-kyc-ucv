@@ -96,11 +96,10 @@ const API_URL = "https://proyecto-kyc-ucv.onrender.com";
             <input
               type="file"
               accept="image/*"
-              capture="environment"
               ref={fileInputRef}
               onChange={handleEscanear}
               className="hidden"
-              title="Select an image file"
+              title="Subir o tomar foto del DNI"
             />
             <button 
               onClick={() => fileInputRef.current?.click()}
