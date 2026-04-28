@@ -61,20 +61,26 @@ async def escanear_dni(file: UploadFile = File(...)):
             texto_crudo = pytesseract.image_to_string(dni_limpio, lang='spa', config='--oem 3 --psm 11')
             texto_limpio = texto_crudo.replace(" ", "").replace("\n", "").upper()
 
-            # --- LÓGICA DE EXTRACCIÓN SÚPER MEJORADA ---
+            # --- LÓGICA DE EXTRACCIÓN SÚPER MEJORADA (A PRUEBA DE BALAS) ---
             dni_final = "No detectado"
 
-            # Intento 1: La franja frontal (Ej: I<PER09947694<)
-            match_frontal = re.search(r'PER(\d{8})<', texto_limpio)
+            # Intento 1: La franja frontal (Ej: PER09947694) - Ignoramos el '<' y aceptamos la 'O'
+            match_frontal = re.search(r'PER([0-9O]{8})', texto_limpio)
             
-            # Intento 2: La parte trasera clásica (Ej: 72865658<5)
-            match_trasera = re.search(r'(\d{8})<(\d)', texto_limpio)
+            # Intento 2: DNI rojo superior (Ej: DNI09947694)
+            match_rojo = re.search(r'DNI([0-9O]{8})', texto_limpio)
+
+            # Intento 3: La parte trasera clásica (Ej: 72865658<5 o 72865658C5)
+            match_trasera = re.search(r'([0-9O]{8})[<CKE(]+(\d)', texto_limpio)
 
             if match_frontal:
-                dni_final = match_frontal.group(1)
-                print(f"🎯 DNI detectado (Frontal): {dni_final}")
+                dni_final = match_frontal.group(1).replace("O", "0")
+                print(f"🎯 DNI detectado (Franja PER): {dni_final}")
+            elif match_rojo:
+                dni_final = match_rojo.group(1).replace("O", "0")
+                print(f"🎯 DNI detectado (Rojo superior): {dni_final}")
             elif match_trasera:
-                dni_final = match_trasera.group(1)
+                dni_final = match_trasera.group(1).replace("O", "0")
                 print(f"🎯 DNI detectado (Trasera): {dni_final}")
 
             # --- CONSULTA A API RENIEC (apis.net.pe) ---
