@@ -1,16 +1,14 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 
+// 1. Actualizamos la interfaz para que coincida con el backend limpio
 interface Registro {
   _id: string;
   nombres: string;
   apellidos: string;
   dni: string;
-  digito_verificador: string;
   fecha_nacimiento: string;
-  estado: string;
-
-  agencia: string;
+  genero: string;
 }
 
 export default function Home() {
@@ -19,10 +17,8 @@ export default function Home() {
   const [escaneando, setEscaneando] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // LA IP FIJA DE TU LAPTOP: Esto es lo más seguro para que el celular la encuentre
-// Borra la línea que tenías y pega esta:
-// LA URL DE TU API EN LA NUBE
-const API_URL = "https://proyecto-kyc-ucv.onrender.com";
+  // LA URL DE TU API EN LA NUBE
+  const API_URL = "https://proyecto-kyc-ucv.onrender.com";
 
   const cargarDatos = async () => {
     try {
@@ -42,6 +38,29 @@ const API_URL = "https://proyecto-kyc-ucv.onrender.com";
   useEffect(() => {
     cargarDatos();
   }, []);
+
+  // --- NUEVA FUNCIÓN PARA ELIMINAR ---
+  const eliminarRegistro = async (id: string) => {
+    const confirmar = window.confirm("¿Estás seguro de que quieres eliminar este registro?");
+    if (!confirmar) return;
+
+    try {
+      const res = await fetch(`${API_URL}/eliminar/${id}`, { 
+        method: "DELETE" 
+      });
+      const data = await res.json();
+      
+      if (data.status === "success") {
+        // Actualizamos la vista al instante quitando el borrado
+        setRegistros(registros.filter((reg) => reg._id !== id));
+      } else {
+        alert("No se pudo eliminar: " + data.message);
+      }
+    } catch (error) {
+      console.error("Error al eliminar:", error);
+      alert("Error de conexión al intentar eliminar.");
+    }
+  };
 
   const handleEscanear = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -75,20 +94,20 @@ const API_URL = "https://proyecto-kyc-ucv.onrender.com";
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-6 md:p-10 font-sans">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
               Sistema KYC - UCV
             </h1>
-            <p className="text-gray-400">Panel de Verificación KYC</p>
+            <p className="text-gray-400">Panel de Verificación de Identidad</p>
           </div>
           
           <div className="flex gap-3">
             <button 
               onClick={cargarDatos}
-              className="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg font-medium transition-colors border border-gray-700"
+              className="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg font-medium transition-colors border border-gray-700 flex items-center gap-2"
             >
               🔄 Actualizar
             </button>
@@ -123,28 +142,30 @@ const API_URL = "https://proyecto-kyc-ucv.onrender.com";
                   <th className="p-4 font-semibold">Usuario</th>
                   <th className="p-4 font-semibold">DNI</th>
                   <th className="p-4 font-semibold">Nacimiento</th>
-                  <th className="p-4 font-semibold">Estado</th>
-                  <th className="p-4 font-semibold text-right">Agencia</th>
+                  <th className="p-4 font-semibold">Género</th>
+                  <th className="p-4 font-semibold text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {registros.map((reg) => (
                   <tr key={reg._id} className="hover:bg-gray-800/30 transition-colors">
                     <td className="p-4">
-                      <p className="font-medium text-white">{reg.nombres}</p>
-                      <p className="text-xs text-gray-400">{reg.apellidos}</p>
+                      <p className="font-medium text-white uppercase">{reg.nombres}</p>
+                      <p className="text-xs text-gray-400 uppercase">{reg.apellidos}</p>
                     </td>
                     <td className="p-4 font-mono text-gray-300">
-                      {reg.dni}-{reg.digito_verificador}
+                      {reg.dni}
                     </td>
                     <td className="p-4 text-gray-400">{reg.fecha_nacimiento}</td>
-                    <td className="p-4">
-                      <span className="px-2 py-1 bg-green-500/10 text-green-400 border border-green-500/20 rounded-full text-xs">
-                        {reg.estado}
-                      </span>
-                    </td>
-                    <td className="p-4 text-gray-500 text-xs text-right font-medium">
-                      {reg.agencia}
+                    <td className="p-4 text-gray-400">{reg.genero}</td>
+                    <td className="p-4 text-center">
+                      <button 
+                        onClick={() => eliminarRegistro(reg._id)}
+                        className="text-red-400 hover:text-red-300 hover:bg-red-400/10 px-3 py-1 rounded transition-colors text-xs font-semibold"
+                        title="Eliminar registro"
+                      >
+                        🗑️ Eliminar
+                      </button>
                     </td>
                   </tr>
                 ))}
