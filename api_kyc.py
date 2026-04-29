@@ -11,7 +11,7 @@ import certifi
 import requests
 from PIL import Image, ImageOps
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime  # IMPORTANTE: Para calcular la edad exacta
+from datetime import datetime
 
 app = FastAPI()
 
@@ -34,118 +34,119 @@ model = YOLO("best.pt")
 
 @app.post("/escanear")
 async def escanear_dni(file: UploadFile = File(...)):
-    # Leer la imagen
     request_object_content = await file.read()
     img = Image.open(io.BytesIO(request_object_content))
     
-    # Optimización para celulares (Rotación y Memoria RAM)
     img = ImageOps.exif_transpose(img)
     img.thumbnail((640, 640))
     
     frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
-    # Usamos conf=0.5 para que la IA sea más permisiva con fotos de celular
     results = model(frame, conf=0.5, verbose=False)
     
     for r in results:
         for box in r.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
-            dni_crop = frame[y1:y2, x1:x2]
+            dni_crop_original = frame[y1:y2, x1:x2]
             
-            # --- NUEVO FIX: AUTO-ROTACIÓN INTELIGENTE ---
-            # Un DNI real siempre es más ancho que alto. 
-            # Si el alto es mayor, significa que la foto se tomó en vertical.
-            alto, ancho = dni_crop.shape[:2]
-            if alto > ancho:
-                # Lo rotamos 90 grados en sentido horario
-                dni_crop = cv2.rotate(dni_crop, cv2.ROTATE_90_CLOCKWISE)
-            # --------------------------------------------
+            # --- NUEVO FIX: FUERZA BRUTA DE ROTACIÓN (360 GRADOS) ---
+            rotaciones = [
+                None, # Posición original (0 grados)
+                cv2.ROTATE_90_CLOCKWISE, # Girado a la derecha (90 grados)
+                cv2.ROTATE_180, # De cabeza (180 grados)
+                cv2.ROTATE_90_COUNTERCLOCKWISE # Girado a la izquierda (270 grados)
+            ]
             
-            # --- Filtros de Visión (Nivel Pro con Otsu) ---
-            gray = cv2.cvtColor(dni_crop, cv2.COLOR_BGR2GRAY)
-            ampliado = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-            blur = cv2.GaussianBlur(ampliado, (3, 3), 0)
-            _, dni_limpio = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-            # --- OCR en modo "Cazador" (psm 11) ---
-            texto_crudo = pytesseract.image_to_string(dni_limpio, lang='spa', config='--oem 3 --psm 11')
-            texto_limpio = texto_crudo.replace(" ", "").replace("\n", "").upper()
-
-            # --- LÓGICA DE EXTRACCIÓN SÚPER MEJORADA (A PRUEBA DE BALAS) ---
             dni_final = "No detectado"
+            texto_limpio_exitoso = ""
 
-            # Intento 1: La franja frontal (Ej: PER09947694) - Ignoramos el '<' y aceptamos la 'O'
-            match_frontal = re.search(r'PER([0-9O]{8})', texto_limpio)
+            for rot in rotaciones:
+                # Aplicamos la rotación correspondiente
+                if rot is not None:
+                    dni_crop = cv2.rotate(dni_crop_original, rot)
+                else:
+                    dni_crop = dni_crop_original
+                
+                # Filtros de Visión
+                gray = cv2.cvtColor(dni_crop, cv2.COLOR_BGR2GRAY)
+                ampliado = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+                blur = cv2.GaussianBlur(ampliado, (3, 3), 0)
+                _, dni_limpio = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+                # OCR
+                texto_crudo = pytesseract.image_to_string(dni_limpio, lang='spa', config='--oem 3 --psm 11')
+                texto_limpio = texto_crudo.replace(" ", "").replace("\n", "").upper()
+
+                # Buscamos el DNI
+                match_frontal = re.search(r'PER([0-9O]{8})', texto_limpio)
+                match_rojo = re.search(r'DNI([0-9O]{8})', texto_limpio)
+                match_trasera = re.search(r'([0-9O]{8})[<CKE(]+(\d)', texto_limpio)
+
+                if match_frontal:
+                    dni_final = match_frontal.group(1).replace("O", "0")
+                    texto_limpio_exitoso = texto_limpio
+                    print(f"🎯 DNI detectado (Franja PER) en rotación: {rot}")
+                    break 
+                elif match_rojo:
+                    dni_final = match_rojo.group(1).replace("O", "0")
+                    texto_limpio_exitoso = texto_limpio
+                    print(f"🎯 DNI detectado (Rojo) en rotación: {rot}")
+                    break
+                elif match_trasera:
+                    dni_final = match_trasera.group(1).replace("O", "0")
+                    texto_limpio_exitoso = texto_limpio
+                    print(f"🎯 DNI detectado (Trasera) en rotación: {rot}")
+                    break
             
-            # Intento 2: DNI rojo superior (Ej: DNI09947694)
-            match_rojo = re.search(r'DNI([0-9O]{8})', texto_limpio)
+            # Si después de dar 4 vueltas no encontró nada, pasamos a la siguiente caja
+            if dni_final == "No detectado":
+                continue
 
-            # Intento 3: La parte trasera clásica (Ej: 72865658<5 o 72865658C5)
-            match_trasera = re.search(r'([0-9O]{8})[<CKE(]+(\d)', texto_limpio)
-
-            if match_frontal:
-                dni_final = match_frontal.group(1).replace("O", "0")
-                print(f"🎯 DNI detectado (Franja PER): {dni_final}")
-            elif match_rojo:
-                dni_final = match_rojo.group(1).replace("O", "0")
-                print(f"🎯 DNI detectado (Rojo superior): {dni_final}")
-            elif match_trasera:
-                dni_final = match_trasera.group(1).replace("O", "0")
-                print(f"🎯 DNI detectado (Trasera): {dni_final}")
-
-            # --- CONSULTA A API RENIEC (apis.net.pe) ---
+            # --- CONSULTA A API RENIEC ---
             nombres, apellidos, verificacion = "No detectado", "No detectado", "No verificado"
 
-            if dni_final != "No detectado":
-                try:
-                    response = requests.get(f"https://api.apis.net.pe/v1/dni?numero={dni_final}", timeout=5)
-                    if response.status_code == 200:
-                        data = response.json()
-                        nombres = data.get("nombres", "No detectado")
-                        apellidos = f"{data.get('apellidoPaterno', '')} {data.get('apellidoMaterno', '')}".strip()
-                        verificacion = "Verificado por RENIEC"
-                        print(f"🌟 API Exitosa: {nombres}")
-                    else:
-                        verificacion = "DNI no encontrado en padrón"
-                except Exception as e:
-                    verificacion = "Error de conexión con API"
-                    print(f"Error API: {e}")
+            try:
+                response = requests.get(f"https://api.apis.net.pe/v1/dni?numero={dni_final}", timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    nombres = data.get("nombres", "No detectado")
+                    apellidos = f"{data.get('apellidoPaterno', '')} {data.get('apellidoMaterno', '')}".strip()
+                    verificacion = "Verificado por RENIEC"
+                else:
+                    verificacion = "DNI no encontrado en padrón"
+            except Exception as e:
+                verificacion = "Error de conexión con API"
 
             # --- Extracción de Fecha, Género y Cálculo de EDAD ---
-            match_nacimiento = re.search(r'(\d{6})\d?([MF])', texto_limpio)
+            match_nacimiento = re.search(r'(\d{6})\d?([MF])', texto_limpio_exitoso)
             edad_final = "No calculada"
             
             if match_nacimiento:
-                fecha_cruda = match_nacimiento.group(1) # Ej: 750317
+                fecha_cruda = match_nacimiento.group(1) 
                 genero_final = "Masculino" if match_nacimiento.group(2) == "M" else "Femenino"
                 
-                # FIX DEL AÑO: Si el año es mayor a 26 (ej. 75), es de 1900. Si es menor, es 2000.
                 año_crudo = int(fecha_cruda[0:2])
                 año_real = 1900 + año_crudo if año_crudo > 26 else 2000 + año_crudo
                 
-                # Formateamos a DD/MM/AAAA
                 fecha_nac_final = f"{fecha_cruda[4:6]}/{fecha_cruda[2:4]}/{año_real}"
                 
-                # CALCULO DE EDAD EXACTA
                 try:
                     fecha_obj = datetime.strptime(fecha_nac_final, "%d/%m/%Y")
                     hoy = datetime.now()
-                    # Restamos los años y ajustamos si aún no cumple años en este mes/día
                     edad_num = hoy.year - fecha_obj.year - ((hoy.month, hoy.day) < (fecha_obj.month, fecha_obj.day))
                     edad_final = f"{edad_num} años"
-                except Exception as e:
+                except Exception:
                     edad_final = "Error al calcular"
-                    print(f"Error calculando edad: {e}")
             else:
                 fecha_nac_final, genero_final = "No detectado", "-"
 
-            # Solo guardamos lo necesario en la Base de Datos
+            # Guardamos en la Base de Datos
             documento = {
                 "nombres": nombres,
                 "apellidos": apellidos,
                 "dni": dni_final,
                 "fecha_nacimiento": fecha_nac_final,
-                "edad": edad_final, # ¡NUEVO CAMPO!
+                "edad": edad_final,
                 "genero": genero_final,
                 "validacion": verificacion
             }

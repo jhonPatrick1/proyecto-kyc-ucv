@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 
-// 1. Actualizamos la interfaz para que coincida con el backend limpio
+// 1. Actualizamos la interfaz para incluir la EDAD
 interface Registro {
   _id: string;
   nombres: string;
@@ -9,13 +9,17 @@ interface Registro {
   dni: string;
   fecha_nacimiento: string;
   genero: string;
+  edad?: string; // Súper importante agregarlo aquí
 }
 
 export default function Home() {
   const [registros, setRegistros] = useState<Registro[]>([]);
   const [loading, setLoading] = useState(true);
   const [escaneando, setEscaneando] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 2. REFERENCIAS SEPARADAS: Una para la cámara y otra para la galería
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   // LA URL DE TU API EN LA NUBE
   const API_URL = "https://proyecto-kyc-ucv.onrender.com";
@@ -39,7 +43,6 @@ export default function Home() {
     cargarDatos();
   }, []);
 
-  // --- NUEVA FUNCIÓN PARA ELIMINAR ---
   const eliminarRegistro = async (id: string) => {
     const confirmar = window.confirm("¿Estás seguro de que quieres eliminar este registro?");
     if (!confirmar) return;
@@ -51,7 +54,6 @@ export default function Home() {
       const data = await res.json();
       
       if (data.status === "success") {
-        // Actualizamos la vista al instante quitando el borrado
         setRegistros(registros.filter((reg) => reg._id !== id));
       } else {
         alert("No se pudo eliminar: " + data.message);
@@ -88,13 +90,15 @@ export default function Home() {
       alert("Error de conexión. Revisa que el servidor Python esté encendido.");
     } finally {
       setEscaneando(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      // Limpiamos ambos inputs para que no haya conflictos en el siguiente escaneo
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
     }
   };
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-6 md:p-10 font-sans">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
@@ -104,7 +108,7 @@ export default function Home() {
             <p className="text-gray-400">Panel de Verificación de Identidad</p>
           </div>
           
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <button 
               onClick={cargarDatos}
               className="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg font-medium transition-colors border border-gray-700 flex items-center gap-2"
@@ -112,20 +116,43 @@ export default function Home() {
               🔄 Actualizar
             </button>
             
+            {/* INPUT 1: SOLO CÁMARA (Lleva capture="environment") */}
             <input
               type="file"
               accept="image/*"
-              ref={fileInputRef}
+              capture="environment"
+              ref={cameraInputRef}
               onChange={handleEscanear}
               className="hidden"
-              title="Subir o tomar foto del DNI"
+              title="Tomar foto con la cámara"
             />
+            
+            {/* INPUT 2: SOLO GALERÍA (No lleva capture) */}
+            <input
+              type="file"
+              accept="image/*"
+              ref={galleryInputRef}
+              onChange={handleEscanear}
+              className="hidden"
+              title="Subir foto de la galería"
+            />
+
+            {/* BOTÓN 1: CÁMARA */}
             <button 
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => cameraInputRef.current?.click()}
               disabled={escaneando}
               className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-blue-900/20"
             >
-              {escaneando ? "🧠 Procesando..." : "📷 Escanear DNI"}
+              {escaneando ? "🧠 Procesando..." : "📷 Cámara"}
+            </button>
+
+            {/* BOTÓN 2: GALERÍA */}
+            <button 
+              onClick={() => galleryInputRef.current?.click()}
+              disabled={escaneando}
+              className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-purple-900/20"
+            >
+              {escaneando ? "⏳..." : "🖼️ Galería"}
             </button>
           </div>
         </div>
@@ -136,12 +163,13 @@ export default function Home() {
           </div>
         ) : (
           <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-x-auto shadow-2xl">
-            <table className="w-full text-left text-sm min-w-[600px]">
+            <table className="w-full text-left text-sm min-w-[700px]">
               <thead className="bg-gray-800/50 text-gray-300">
                 <tr>
                   <th className="p-4 font-semibold">Usuario</th>
                   <th className="p-4 font-semibold">DNI</th>
                   <th className="p-4 font-semibold">Nacimiento</th>
+                  <th className="p-4 font-semibold text-center">Edad</th> {/* NUEVA COLUMNA */}
                   <th className="p-4 font-semibold">Género</th>
                   <th className="p-4 font-semibold text-center">Acciones</th>
                 </tr>
@@ -157,6 +185,9 @@ export default function Home() {
                       {reg.dni}
                     </td>
                     <td className="p-4 text-gray-400">{reg.fecha_nacimiento}</td>
+                    <td className="p-4 text-center font-medium text-blue-400">
+                      {reg.edad || "-"} {/* MUESTRA LA EDAD O UN GUION */}
+                    </td>
                     <td className="p-4 text-gray-400">{reg.genero}</td>
                     <td className="p-4 text-center">
                       <button 
@@ -171,7 +202,7 @@ export default function Home() {
                 ))}
                 {registros.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="p-10 text-center text-gray-500">
+                    <td colSpan={6} className="p-10 text-center text-gray-500">
                       No hay DNIs en la base de datos.
                     </td>
                   </tr>
