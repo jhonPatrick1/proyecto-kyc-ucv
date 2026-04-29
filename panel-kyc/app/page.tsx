@@ -132,12 +132,13 @@ export default function Home() {
             </button>
             
             <input
-              type="file"
-              accept="image/*"
-              ref={cameraInputRef}
-              onChange={handleEscanear}
-              aria-label="Seleccionar imagen desde cámara"
-              className="hidden"
+               type="file"
+               accept="image/*"
+               capture="environment" 
+               ref={cameraInputRef}
+               onChange={handleEscanear}
+               aria-label="Seleccionar imagen desde cámara"
+               className="hidden"
             />
             <input
               type="file"
