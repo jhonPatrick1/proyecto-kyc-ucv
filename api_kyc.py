@@ -11,6 +11,7 @@ import certifi
 import requests
 from PIL import Image, ImageOps
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime  # IMPORTANTE: Para calcular la edad exacta
 
 app = FastAPI()
 
@@ -50,6 +51,15 @@ async def escanear_dni(file: UploadFile = File(...)):
         for box in r.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             dni_crop = frame[y1:y2, x1:x2]
+            
+            # --- NUEVO FIX: AUTO-ROTACIÓN INTELIGENTE ---
+            # Un DNI real siempre es más ancho que alto. 
+            # Si el alto es mayor, significa que la foto se tomó en vertical.
+            alto, ancho = dni_crop.shape[:2]
+            if alto > ancho:
+                # Lo rotamos 90 grados en sentido horario
+                dni_crop = cv2.rotate(dni_crop, cv2.ROTATE_90_CLOCKWISE)
+            # --------------------------------------------
             
             # --- Filtros de Visión (Nivel Pro con Otsu) ---
             gray = cv2.cvtColor(dni_crop, cv2.COLOR_BGR2GRAY)
@@ -101,12 +111,31 @@ async def escanear_dni(file: UploadFile = File(...)):
                     verificacion = "Error de conexión con API"
                     print(f"Error API: {e}")
 
-            # Extracción de Fecha y Género (Suele funcionar mejor en la trasera)
+            # --- Extracción de Fecha, Género y Cálculo de EDAD ---
             match_nacimiento = re.search(r'(\d{6})\d?([MF])', texto_limpio)
+            edad_final = "No calculada"
+            
             if match_nacimiento:
-                fecha_cruda = match_nacimiento.group(1)
+                fecha_cruda = match_nacimiento.group(1) # Ej: 750317
                 genero_final = "Masculino" if match_nacimiento.group(2) == "M" else "Femenino"
-                fecha_nac_final = f"{fecha_cruda[4:6]}/{fecha_cruda[2:4]}/20{fecha_cruda[0:2]}"
+                
+                # FIX DEL AÑO: Si el año es mayor a 26 (ej. 75), es de 1900. Si es menor, es 2000.
+                año_crudo = int(fecha_cruda[0:2])
+                año_real = 1900 + año_crudo if año_crudo > 26 else 2000 + año_crudo
+                
+                # Formateamos a DD/MM/AAAA
+                fecha_nac_final = f"{fecha_cruda[4:6]}/{fecha_cruda[2:4]}/{año_real}"
+                
+                # CALCULO DE EDAD EXACTA
+                try:
+                    fecha_obj = datetime.strptime(fecha_nac_final, "%d/%m/%Y")
+                    hoy = datetime.now()
+                    # Restamos los años y ajustamos si aún no cumple años en este mes/día
+                    edad_num = hoy.year - fecha_obj.year - ((hoy.month, hoy.day) < (fecha_obj.month, fecha_obj.day))
+                    edad_final = f"{edad_num} años"
+                except Exception as e:
+                    edad_final = "Error al calcular"
+                    print(f"Error calculando edad: {e}")
             else:
                 fecha_nac_final, genero_final = "No detectado", "-"
 
@@ -116,6 +145,7 @@ async def escanear_dni(file: UploadFile = File(...)):
                 "apellidos": apellidos,
                 "dni": dni_final,
                 "fecha_nacimiento": fecha_nac_final,
+                "edad": edad_final, # ¡NUEVO CAMPO!
                 "genero": genero_final,
                 "validacion": verificacion
             }
