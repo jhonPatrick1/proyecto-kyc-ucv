@@ -49,35 +49,31 @@ async def escanear_dni(file: UploadFile = File(...)):
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             dni_crop_original = frame[y1:y2, x1:x2]
             
-            # --- NUEVO FIX: FUERZA BRUTA DE ROTACIÓN (360 GRADOS) ---
+            # --- FUERZA BRUTA DE ROTACIÓN (360 GRADOS) ---
             rotaciones = [
-                None, # Posición original (0 grados)
-                cv2.ROTATE_90_CLOCKWISE, # Girado a la derecha (90 grados)
-                cv2.ROTATE_180, # De cabeza (180 grados)
-                cv2.ROTATE_90_COUNTERCLOCKWISE # Girado a la izquierda (270 grados)
+                None, 
+                cv2.ROTATE_90_CLOCKWISE, 
+                cv2.ROTATE_180, 
+                cv2.ROTATE_90_COUNTERCLOCKWISE 
             ]
             
             dni_final = "No detectado"
             texto_limpio_exitoso = ""
 
             for rot in rotaciones:
-                # Aplicamos la rotación correspondiente
                 if rot is not None:
                     dni_crop = cv2.rotate(dni_crop_original, rot)
                 else:
                     dni_crop = dni_crop_original
                 
-                # Filtros de Visión
                 gray = cv2.cvtColor(dni_crop, cv2.COLOR_BGR2GRAY)
                 ampliado = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
                 blur = cv2.GaussianBlur(ampliado, (3, 3), 0)
                 _, dni_limpio = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-                # OCR
                 texto_crudo = pytesseract.image_to_string(dni_limpio, lang='spa', config='--oem 3 --psm 11')
                 texto_limpio = texto_crudo.replace(" ", "").replace("\n", "").upper()
 
-                # Buscamos el DNI
                 match_frontal = re.search(r'PER([0-9O]{8})', texto_limpio)
                 match_rojo = re.search(r'DNI([0-9O]{8})', texto_limpio)
                 match_trasera = re.search(r'([0-9O]{8})[<CKE(]+(\d)', texto_limpio)
@@ -85,39 +81,47 @@ async def escanear_dni(file: UploadFile = File(...)):
                 if match_frontal:
                     dni_final = match_frontal.group(1).replace("O", "0")
                     texto_limpio_exitoso = texto_limpio
-                    print(f"🎯 DNI detectado (Franja PER) en rotación: {rot}")
                     break 
                 elif match_rojo:
                     dni_final = match_rojo.group(1).replace("O", "0")
                     texto_limpio_exitoso = texto_limpio
-                    print(f"🎯 DNI detectado (Rojo) en rotación: {rot}")
                     break
                 elif match_trasera:
                     dni_final = match_trasera.group(1).replace("O", "0")
                     texto_limpio_exitoso = texto_limpio
-                    print(f"🎯 DNI detectado (Trasera) en rotación: {rot}")
                     break
             
-            # Si después de dar 4 vueltas no encontró nada, pasamos a la siguiente caja
             if dni_final == "No detectado":
                 continue
 
-            # --- CONSULTA A API RENIEC ---
+            # --- CONSULTA API RENIEC (CON ANTI-BLOQUEO PARA NUBE) ---
             nombres, apellidos, verificacion = "No detectado", "No detectado", "No verificado"
 
             try:
-                response = requests.get(f"https://api.apis.net.pe/v1/dni?numero={dni_final}", timeout=5)
+                # 1. Disfrazamos a Python como si fuera un navegador web real (Chrome)
+                headers = {
+                    "Accept": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+                
+                # 2. Subimos el timeout a 8 segundos por si la API pública está lenta
+                url_api = f"https://api.apis.net.pe/v1/dni?numero={dni_final}"
+                response = requests.get(url_api, headers=headers, timeout=8)
+                
                 if response.status_code == 200:
                     data = response.json()
                     nombres = data.get("nombres", "No detectado")
                     apellidos = f"{data.get('apellidoPaterno', '')} {data.get('apellidoMaterno', '')}".strip()
                     verificacion = "Verificado por RENIEC"
+                    print(f"🌟 API Exitosa en Nube: {nombres}")
                 else:
-                    verificacion = "DNI no encontrado en padrón"
+                    verificacion = f"Bloqueo API: {response.status_code}"
+                    print(f"❌ La API respondió con error: {response.status_code}")
             except Exception as e:
-                verificacion = "Error de conexión con API"
+                verificacion = "Timeout o caída de API"
+                print(f"❌ Error interno API: {e}")
 
-            # --- Extracción de Fecha, Género y Cálculo de EDAD ---
+            # --- EXTRACCIÓN Y CÁLCULO DE EDAD ---
             match_nacimiento = re.search(r'(\d{6})\d?([MF])', texto_limpio_exitoso)
             edad_final = "No calculada"
             
@@ -127,7 +131,6 @@ async def escanear_dni(file: UploadFile = File(...)):
                 
                 año_crudo = int(fecha_cruda[0:2])
                 año_real = 1900 + año_crudo if año_crudo > 26 else 2000 + año_crudo
-                
                 fecha_nac_final = f"{fecha_cruda[4:6]}/{fecha_cruda[2:4]}/{año_real}"
                 
                 try:
@@ -140,7 +143,6 @@ async def escanear_dni(file: UploadFile = File(...)):
             else:
                 fecha_nac_final, genero_final = "No detectado", "-"
 
-            # Guardamos en la Base de Datos
             documento = {
                 "nombres": nombres,
                 "apellidos": apellidos,
@@ -174,6 +176,30 @@ async def eliminar_registro(id_registro: str):
         if resultado.deleted_count == 1:
             return {"status": "success", "message": "Registro eliminado"}
         return {"status": "error", "message": "No encontrado"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# --- NUEVO ENDPOINT: PARA EDITAR LA FECHA MANUALMENTE ---
+@app.put("/actualizar/{id_registro}")
+async def actualizar_registro(id_registro: str, datos: dict):
+    try:
+        nueva_fecha = datos.get("fecha_nacimiento")
+        if not nueva_fecha:
+            return {"status": "error", "message": "Falta la fecha"}
+
+        fecha_obj = datetime.strptime(nueva_fecha, "%d/%m/%Y")
+        hoy = datetime.now()
+        edad_num = hoy.year - fecha_obj.year - ((hoy.month, hoy.day) < (fecha_obj.month, fecha_obj.day))
+        nueva_edad = f"{edad_num} años"
+
+        resultado = coleccion.update_one(
+            {"_id": ObjectId(id_registro)},
+            {"$set": {"fecha_nacimiento": nueva_fecha, "edad": nueva_edad}}
+        )
+        
+        if resultado.modified_count == 1:
+            return {"status": "success", "nueva_edad": nueva_edad}
+        return {"status": "error", "message": "No se encontraron cambios"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

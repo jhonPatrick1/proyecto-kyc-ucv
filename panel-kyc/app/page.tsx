@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 
-// 1. Actualizamos la interfaz para incluir la EDAD
 interface Registro {
   _id: string;
   nombres: string;
@@ -9,7 +8,7 @@ interface Registro {
   dni: string;
   fecha_nacimiento: string;
   genero: string;
-  edad?: string; // Súper importante agregarlo aquí
+  edad?: string; 
 }
 
 export default function Home() {
@@ -17,11 +16,13 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [escaneando, setEscaneando] = useState(false);
   
-  // 2. REFERENCIAS SEPARADAS: Una para la cámara y otra para la galería
+  // NUEVOS ESTADOS PARA EDITAR LA FECHA
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [tempFecha, setTempFecha] = useState("");
+
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  // LA URL DE TU API EN LA NUBE
   const API_URL = "https://proyecto-kyc-ucv.onrender.com";
 
   const cargarDatos = async () => {
@@ -48,19 +49,35 @@ export default function Home() {
     if (!confirmar) return;
 
     try {
-      const res = await fetch(`${API_URL}/eliminar/${id}`, { 
-        method: "DELETE" 
-      });
+      const res = await fetch(`${API_URL}/eliminar/${id}`, { method: "DELETE" });
       const data = await res.json();
-      
       if (data.status === "success") {
         setRegistros(registros.filter((reg) => reg._id !== id));
       } else {
         alert("No se pudo eliminar: " + data.message);
       }
     } catch (error) {
-      console.error("Error al eliminar:", error);
       alert("Error de conexión al intentar eliminar.");
+    }
+  };
+
+  // NUEVA FUNCIÓN PARA GUARDAR LA FECHA EDITADA
+  const guardarCambio = async (id: string) => {
+    try {
+      const res = await fetch(`${API_URL}/actualizar/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fecha_nacimiento: tempFecha }),
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        setEditandoId(null);
+        cargarDatos(); // Actualizamos la tabla para ver la nueva edad
+      } else {
+        alert("Error al actualizar: Asegúrate de usar el formato DD/MM/AAAA");
+      }
+    } catch (error) {
+      alert("Error de conexión al intentar actualizar.");
     }
   };
 
@@ -86,11 +103,9 @@ export default function Home() {
         alert("❌ No se detectó un DNI válido. Intenta con otra foto.");
       }
     } catch (error) {
-      console.error(error);
       alert("Error de conexión. Revisa que el servidor Python esté encendido.");
     } finally {
       setEscaneando(false);
-      // Limpiamos ambos inputs para que no haya conflictos en el siguiente escaneo
       if (cameraInputRef.current) cameraInputRef.current.value = "";
       if (galleryInputRef.current) galleryInputRef.current.value = "";
     }
@@ -116,28 +131,23 @@ export default function Home() {
               🔄 Actualizar
             </button>
             
-            {/* INPUT 1: SOLO CÁMARA (Lleva capture="environment") */}
             <input
               type="file"
               accept="image/*"
-              capture="environment"
               ref={cameraInputRef}
               onChange={handleEscanear}
+              aria-label="Seleccionar imagen desde cámara"
               className="hidden"
-              title="Tomar foto con la cámara"
             />
-            
-            {/* INPUT 2: SOLO GALERÍA (No lleva capture) */}
             <input
               type="file"
               accept="image/*"
               ref={galleryInputRef}
               onChange={handleEscanear}
+              aria-label="Seleccionar imagen desde galería"
               className="hidden"
-              title="Subir foto de la galería"
             />
 
-            {/* BOTÓN 1: CÁMARA */}
             <button 
               onClick={() => cameraInputRef.current?.click()}
               disabled={escaneando}
@@ -146,7 +156,6 @@ export default function Home() {
               {escaneando ? "🧠 Procesando..." : "📷 Cámara"}
             </button>
 
-            {/* BOTÓN 2: GALERÍA */}
             <button 
               onClick={() => galleryInputRef.current?.click()}
               disabled={escaneando}
@@ -169,7 +178,7 @@ export default function Home() {
                   <th className="p-4 font-semibold">Usuario</th>
                   <th className="p-4 font-semibold">DNI</th>
                   <th className="p-4 font-semibold">Nacimiento</th>
-                  <th className="p-4 font-semibold text-center">Edad</th> {/* NUEVA COLUMNA */}
+                  <th className="p-4 font-semibold text-center">Edad</th>
                   <th className="p-4 font-semibold">Género</th>
                   <th className="p-4 font-semibold text-center">Acciones</th>
                 </tr>
@@ -184,9 +193,34 @@ export default function Home() {
                     <td className="p-4 font-mono text-gray-300">
                       {reg.dni}
                     </td>
-                    <td className="p-4 text-gray-400">{reg.fecha_nacimiento}</td>
+                    <td className="p-4 text-gray-400">
+                      {/* LÓGICA DE EDICIÓN DE FECHA */}
+                      {editandoId === reg._id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={tempFecha}
+                            onChange={(e) => setTempFecha(e.target.value)}
+                            className="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-sm w-28"
+                            placeholder="DD/MM/AAAA"
+                          />
+                          <button onClick={() => guardarCambio(reg._id)} className="text-green-400 hover:text-green-300 font-bold" title="Guardar">✓</button>
+                          <button onClick={() => setEditandoId(null)} className="text-red-400 hover:text-red-300 font-bold" title="Cancelar">✕</button>
+                        </div>
+                      ) : (
+                        <span
+                          onClick={() => {
+                            setEditandoId(reg._id);
+                            setTempFecha(reg.fecha_nacimiento);
+                          }}
+                          className="cursor-pointer border-b border-dashed border-gray-600 hover:text-blue-300 transition-colors"
+                          title="Click para editar fecha"
+                        >
+                          {reg.fecha_nacimiento} ✏️
+                        </span>
+                      )}
+                    </td>
                     <td className="p-4 text-center font-medium text-blue-400">
-                      {reg.edad || "-"} {/* MUESTRA LA EDAD O UN GUION */}
+                      {reg.edad || "-"}
                     </td>
                     <td className="p-4 text-gray-400">{reg.genero}</td>
                     <td className="p-4 text-center">
