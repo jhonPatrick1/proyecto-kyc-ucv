@@ -177,7 +177,7 @@ export default function Home() {
         </div>
 
         {/* VISTA DE LA CÁMARA CON LA MÁSCARA (Se muestra solo si mostrarWebcam es true) */}
-        {mostrarWebcam && (
+        {mostrarWebcam && !escaneando && (
           <div className="mb-8 p-6 bg-gray-900 border border-gray-800 rounded-xl flex flex-col items-center">
             <div className="relative border-4 border-dashed border-gray-400 rounded-lg overflow-hidden flex justify-center items-center bg-black w-full max-w-lg">
               {/* @ts-ignore */}
