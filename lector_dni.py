@@ -9,7 +9,7 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tessera
 model = YOLO("best.pt")
 cap = cv2.VideoCapture(0)
 
-print("🚀 Sistema KYC de Z-Index Studio Iniciado.")
+print("🚀 Sistema KYC Iniciado.")
 print("👉 ¡Haz clic en la ventana de video y presiona 'S' para escanear!")
 
 while True:
@@ -30,9 +30,9 @@ while True:
             if dni_crop.size > 0:
                 
                 gray = cv2.cvtColor(dni_crop, cv2.COLOR_BGR2GRAY)
-                # Agrandar la imagen al doble 
+
                 ampliado = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-                # Mejorar el contraste
+
                 dni_limpio = cv2.convertScaleAbs(ampliado, alpha=1.2, beta=0)
 
                 cv2.imshow("Lo que lee la IA", dni_limpio)
@@ -42,7 +42,7 @@ while True:
     cv2.putText(frame, "Haz clic AQUI y presiona 'S'", (10, 30), 
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     
-    cv2.imshow("KYC Scanner Pro - Z-Index Studio", frame)
+    cv2.imshow("KYC Scanner Pro", frame)
 
     tecla = cv2.waitKey(1) & 0xFF
     

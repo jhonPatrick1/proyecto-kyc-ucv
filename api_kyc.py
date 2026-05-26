@@ -23,13 +23,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 1. CONEXIÓN A MONGO DB
 MONGO_URI = "mongodb+srv://jhonpatrickcg_db_user:yHK7MkFlLeULjC23@cluster0.tknyeco.mongodb.net/?appName=Cluster0&tlsAllowInvalidCertificates=true"
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client["zindex_kyc_db"] 
 coleccion = db["registros_dni"] 
 
-# 2. CONFIGURACIÓN IA
 model = YOLO("best.pt")
 
 @app.post("/escanear")
@@ -43,13 +41,11 @@ async def escanear_dni(file: UploadFile = File(...)):
     frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
     results = model(frame, conf=0.5, verbose=False)
-    
     for r in results:
         for box in r.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             dni_crop_original = frame[y1:y2, x1:x2]
             
-            # --- FUERZA BRUTA DE ROTACIÓN (360 GRADOS) ---
             rotaciones = [
                 None, 
                 cv2.ROTATE_90_CLOCKWISE, 
@@ -67,7 +63,13 @@ async def escanear_dni(file: UploadFile = File(...)):
                     dni_crop = dni_crop_original
                 
                 gray = cv2.cvtColor(dni_crop, cv2.COLOR_BGR2GRAY)
-                ampliado = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+                
+               
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                gray_clahe = clahe.apply(gray)
+                #  -------------------------------------- 
+
+                ampliado = cv2.resize(gray_clahe, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
                 blur = cv2.GaussianBlur(ampliado, (3, 3), 0)
                 _, dni_limpio = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
@@ -94,20 +96,17 @@ async def escanear_dni(file: UploadFile = File(...)):
             if dni_final == "No detectado":
                 continue
 
-            # --- CONSULTA API RENIEC (CON ANTI-BLOQUEO PARA NUBE) ---
             nombres, apellidos, verificacion = "No detectado", "No detectado", "No verificado"
 
             try:
-                # 1. Disfrazamos a Python como si fuera un navegador web real (Chrome)
                 headers = {
                     "Accept": "application/json",
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 }
-                
-                # 2. Subimos el timeout a 8 segundos por si la API pública está lenta
+            
                 url_api = f"https://api.apis.net.pe/v1/dni?numero={dni_final}"
                 response = requests.get(url_api, headers=headers, timeout=8)
-                
+            
                 if response.status_code == 200:
                     data = response.json()
                     nombres = data.get("nombres", "No detectado")
@@ -121,7 +120,6 @@ async def escanear_dni(file: UploadFile = File(...)):
                 verificacion = "Timeout o caída de API"
                 print(f"❌ Error interno API: {e}")
 
-            # --- EXTRACCIÓN Y CÁLCULO DE EDAD ---
             match_nacimiento = re.search(r'(\d{6})\d?([MF])', texto_limpio_exitoso)
             edad_final = "No calculada"
             
@@ -142,6 +140,14 @@ async def escanear_dni(file: UploadFile = File(...)):
                     edad_final = "Error al calcular"
             else:
                 fecha_nac_final, genero_final = "No detectado", "-"
+
+            
+            if nombres == "No detectado" or dni_final == "No detectado":
+                return {
+                    "status": "error", 
+                    "message": "Calidad insuficiente. Por favor, evite los reflejos y encuadre bien el DNI."
+                }
+            #    ------------------------------ 
 
             documento = {
                 "nombres": nombres,
@@ -179,7 +185,6 @@ async def eliminar_registro(id_registro: str):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# --- NUEVO ENDPOINT: PARA EDITAR LA FECHA MANUALMENTE ---
 @app.put("/actualizar/{id_registro}")
 async def actualizar_registro(id_registro: str, datos: dict):
     try:
