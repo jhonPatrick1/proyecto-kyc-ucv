@@ -83,6 +83,7 @@ while True:
             nombres = f"{match_nombre.group(2)} {match_nombre.group(3)}".replace("E<", "").strip()
         else:
             apellidos, nombres = "No detectado", "No detectado"
+            
 
         print("✅ ¡DATOS DE SEGURIDAD ESTRUCTURADOS EXITOSAMENTE!")
         print(f"👤 Nombres       : {nombres}")
