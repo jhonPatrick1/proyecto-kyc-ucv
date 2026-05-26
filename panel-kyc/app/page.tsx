@@ -185,7 +185,11 @@ export default function Home() {
                 audio={false}
                 ref={webcamRef}
                 screenshotFormat="image/jpeg"
-                videoConstraints={{ facingMode: "environment" }} // Usa la cámara trasera en celulares
+                screenshotQuality={1}
+                videoConstraints={{ facingMode: "environment", // Usa la cámara trasera en celulares
+                width: { ideal: 1920 },
+                  height: { ideal: 1080 }
+                }}
                 className="w-full h-auto"
               />
 
