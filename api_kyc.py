@@ -40,7 +40,7 @@ async def escanear_dni(file: UploadFile = File(...)):
         img = ImageOps.exif_transpose(img)
         
         # Volvemos a 640. Es el límite máximo de seguridad para la RAM gratuita
-        img.thumbnail((640, 640)) 
+        img.thumbnail((1280, 1280))
         
         frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
