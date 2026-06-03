@@ -12,7 +12,7 @@ import requests
 from PIL import Image, ImageOps
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
-import gc # <-- NUEVO: Librería nativa para limpiar memoria RAM
+import gc 
 
 app = FastAPI()
 
@@ -33,14 +33,14 @@ model = YOLO("best.pt")
 
 @app.post("/escanear")
 async def escanear_dni(file: UploadFile = File(...)):
-    try: # Iniciamos bloque Try para asegurar la limpieza al final
+    try:
         request_object_content = await file.read()
         img = Image.open(io.BytesIO(request_object_content))
         
         img = ImageOps.exif_transpose(img)
         
-        # Volvemos a 640. Es el límite máximo de seguridad para la RAM gratuita
-        img.thumbnail((1280, 1280))
+        # Mantenemos 1280 para aprovechar los 16GB de RAM de Hugging Face
+        img.thumbnail((1280, 1280)) 
         
         frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
@@ -67,16 +67,12 @@ async def escanear_dni(file: UploadFile = File(...)):
                     else:
                         dni_crop = dni_crop_original
                     
+                    # --- PROCESAMIENTO LIMPIO PARA ALTA RESOLUCIÓN ---
+                    # Eliminamos los filtros agresivos. Solo pasamos la imagen a escala de grises.
+                    # Tesseract 4+ hace su propia binarización interna y lee mejor los fondos con marcas de agua así.
                     gray = cv2.cvtColor(dni_crop, cv2.COLOR_BGR2GRAY)
-                    ampliado = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
                     
-                    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-                    contraste = clahe.apply(ampliado)
-                    
-                    suavizado = cv2.bilateralFilter(contraste, 9, 75, 75)
-                    dni_limpio = cv2.adaptiveThreshold(suavizado, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-
-                    texto_crudo = pytesseract.image_to_string(dni_limpio, lang='spa', config='--oem 3 --psm 11')
+                    texto_crudo = pytesseract.image_to_string(gray, lang='spa', config='--oem 3 --psm 11')
                     texto_limpio_sin_espacios = texto_crudo.replace(" ", "").replace("\n", "").upper()
                     texto_upper = texto_crudo.upper()
 
@@ -106,7 +102,6 @@ async def escanear_dni(file: UploadFile = File(...)):
                         texto_limpio_exitoso = texto_limpio
                         break
                 
-                # Si ya encontró un DNI exitosamente, rompemos el bucle para ahorrar memoria extra
                 if dni_final != "No detectado":
                     break
         
@@ -177,7 +172,6 @@ async def escanear_dni(file: UploadFile = File(...)):
         return {"status": "success", "datos": documento}
         
     finally:
-        # MAGIA AQUÍ: Forzamos la limpieza de la memoria RAM pase lo que pase
         gc.collect()
 
 @app.get("/registros")
