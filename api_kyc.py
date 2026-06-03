@@ -36,7 +36,7 @@ async def escanear_dni(file: UploadFile = File(...)):
     img = Image.open(io.BytesIO(request_object_content))
     
     img = ImageOps.exif_transpose(img)
-    img.thumbnail((640, 640))
+    img.thumbnail((1280, 1280))
     
     frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
