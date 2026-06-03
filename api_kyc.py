@@ -62,23 +62,30 @@ async def escanear_dni(file: UploadFile = File(...)):
                 else:
                     dni_crop = dni_crop_original
                 
+                # --- INICIO DE LA MEJORA DE IMAGEN ---
                 gray = cv2.cvtColor(dni_crop, cv2.COLOR_BGR2GRAY)
+                ampliado = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
                 
-               
+                # Filtros avanzados para eliminar reflejos y sombras
                 clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-                gray_clahe = clahe.apply(gray)
-                #  -------------------------------------- 
+                contraste = clahe.apply(ampliado)
+                
+                suavizado = cv2.bilateralFilter(contraste, 9, 75, 75)
+                dni_limpio = cv2.adaptiveThreshold(suavizado, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+                # --- FIN DE LA MEJORA DE IMAGEN ---
 
-                ampliado = cv2.resize(gray_clahe, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-                blur = cv2.GaussianBlur(ampliado, (3, 3), 0)
-                _, dni_limpio = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                # --- OCR Y BÚSQUEDA (REGEX) OPTIMIZADOS ---
+                texto_crudo = pytesseract.image_to_string(dni_limpio, lang='spa', config='--oem 3 --psm 6')
+                texto_limpio_sin_espacios = texto_crudo.replace(" ", "").replace("\n", "").upper()
+                texto_upper = texto_crudo.upper()
 
-                texto_crudo = pytesseract.image_to_string(dni_limpio, lang='spa', config='--oem 3 --psm 11')
-                texto_limpio = texto_crudo.replace(" ", "").replace("\n", "").upper()
+                match_frontal = re.search(r'P[EF]R[.\-\s]*([0-9O]{8})', texto_upper)
+                match_rojo = re.search(r'D[N\\][I1L][.\-\s]*([0-9O]{8})', texto_upper)
+                match_trasera = re.search(r'([0-9O]{8})[<CKE(]+(\d)', texto_limpio_sin_espacios)
+                # Comodín salvavidas: busca cualquier bloque de 8 números
+                match_generico = re.search(r'(?<!\d)([0-9O]{8})(?!\d)', texto_limpio_sin_espacios)
 
-                match_frontal = re.search(r'PER([0-9O]{8})', texto_limpio)
-                match_rojo = re.search(r'DNI([0-9O]{8})', texto_limpio)
-                match_trasera = re.search(r'([0-9O]{8})[<CKE(]+(\d)', texto_limpio)
+                texto_limpio = texto_limpio_sin_espacios
 
                 if match_frontal:
                     dni_final = match_frontal.group(1).replace("O", "0")
@@ -90,6 +97,10 @@ async def escanear_dni(file: UploadFile = File(...)):
                     break
                 elif match_trasera:
                     dni_final = match_trasera.group(1).replace("O", "0")
+                    texto_limpio_exitoso = texto_limpio
+                    break
+                elif match_generico:
+                    dni_final = match_generico.group(1).replace("O", "0")
                     texto_limpio_exitoso = texto_limpio
                     break
             
@@ -141,13 +152,12 @@ async def escanear_dni(file: UploadFile = File(...)):
             else:
                 fecha_nac_final, genero_final = "No detectado", "-"
 
-            
+            # Validación personalizada
             if nombres == "No detectado" or dni_final == "No detectado":
                 return {
                     "status": "error", 
                     "message": "Calidad insuficiente. Por favor, evite los reflejos y encuadre bien el DNI."
                 }
-            #    ------------------------------ 
 
             documento = {
                 "nombres": nombres,
