@@ -36,7 +36,7 @@ async def escanear_dni(file: UploadFile = File(...)):
     img = Image.open(io.BytesIO(request_object_content))
     
     img = ImageOps.exif_transpose(img)
-    img.thumbnail((800, 800))
+    img.thumbnail((1024, 1024))
     
     frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
@@ -75,9 +75,11 @@ async def escanear_dni(file: UploadFile = File(...)):
                 # --- FIN DE LA MEJORA DE IMAGEN ---
 
                 # --- OCR Y BÚSQUEDA (REGEX) OPTIMIZADOS ---
-                texto_crudo = pytesseract.image_to_string(dni_limpio, lang='spa', config='--oem 3 --psm 6')
+                texto_crudo = pytesseract.image_to_string(dni_limpio, lang='spa', config='--oem 3 --psm 11')
                 texto_limpio_sin_espacios = texto_crudo.replace(" ", "").replace("\n", "").upper()
                 texto_upper = texto_crudo.upper()
+
+                print(f"👀 OCR LEYÓ: {texto_limpio_sin_espacios}")
 
                 match_frontal = re.search(r'P[EF]R[.\-\s]*([0-9O]{8})', texto_upper)
                 match_rojo = re.search(r'D[N\\][I1L][.\-\s]*([0-9O]{8})', texto_upper)
