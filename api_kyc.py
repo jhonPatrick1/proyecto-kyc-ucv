@@ -13,6 +13,9 @@ from PIL import Image, ImageOps
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import gc 
+from pydantic import BaseModel
+import pandas as pd
+from sklearn.naive_bayes import GaussianNB
 
 app = FastAPI()
 
@@ -213,5 +216,56 @@ async def actualizar_registro(id_registro: str, datos: dict):
         if resultado.modified_count == 1:
             return {"status": "success", "nueva_edad": nueva_edad}
         return {"status": "error", "message": "No se encontraron cambios"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    
+    # --- NAIVE BAYES ---
+
+
+class DatosFinancieros(BaseModel):
+    edad: int
+    ingresos: float
+    es_independiente: int  
+
+@app.post("/evaluar-riesgo")
+async def evaluar_riesgo(datos: DatosFinancieros):
+    try:
+        # 1. EL DATASET (El conocimiento previo)
+        # Aquí le enseñamos a la IA con casos pasados para que calcule la probabilidad.
+        # 1 = Aprobado, 0 = Rechazado
+        data = {
+            'edad': [22, 45, 19, 35, 50, 28, 60, 21, 40, 30],
+            'ingresos': [1200, 5000, 800, 3500, 6000, 2500, 1500, 900, 4200, 3100],
+            'es_independiente': [1, 0, 1, 0, 0, 1, 1, 0, 0, 1],
+            'aprobado': [0, 1, 0, 1, 1, 1, 0, 0, 1, 1]
+        }
+        df = pd.DataFrame(data)
+        
+        # Separamos las características (X) y lo que queremos predecir (y)
+        X = df[['edad', 'ingresos', 'es_independiente']]
+        y = df['aprobado']
+
+        # 2. ENTRENAMIENTO DEL MODELO NAIVE BAYES
+        modelo = GaussianNB()
+        modelo.fit(X, y)
+
+        # 3. PREDICCIÓN PARA EL NUEVO USUARIO ESCANEADO
+        nuevo_cliente = pd.DataFrame(
+            [[datos.edad, datos.ingresos, datos.es_independiente]],
+            columns=['edad', 'ingresos', 'es_independiente']
+        )
+        
+        # Aplicamos el teorema de Bayes para predecir
+        prediccion = modelo.predict(nuevo_cliente)[0]
+        # Obtenemos el porcentaje de seguridad matemática de la decisión
+        probabilidad = modelo.predict_proba(nuevo_cliente)[0][1] * 100
+
+        estado = "Aprobado Automáticamente" if prediccion == 1 else "Requiere Revisión Manual"
+        
+        return {
+            "status": "success",
+            "resultado_ia": estado, 
+            "confianza_bayes": f"{probabilidad:.1f}%"
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}
