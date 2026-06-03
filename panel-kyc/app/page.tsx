@@ -27,7 +27,7 @@ export default function Home() {
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const webcamRef = useRef<Webcam>(null);
 
-  const API_URL = "https://proyecto-kyc-ucv.onrender.com";
+  const API_URL = "https://kyc-afvv.onrender.com";
 
   const cargarDatos = async () => {
     try {
