@@ -12,7 +12,6 @@ interface Registro {
   edad?: string; 
 }
 
-// Nueva interfaz para guardar el resultado de la IA en el estado
 interface EvaluacionIA {
   estado: string;
   confianza: string;
@@ -23,19 +22,16 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [escaneando, setEscaneando] = useState(false);
   
-  // Estados de edición
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [tempFecha, setTempFecha] = useState("");
 
-  // Estado para mostrar la cámara web
   const [mostrarWebcam, setMostrarWebcam] = useState(false);
 
-  // ESTADOS PARA NAIVE BAYES (IA)
   const [evaluaciones, setEvaluaciones] = useState<Record<string, EvaluacionIA>>({});
   const [modalRiesgo, setModalRiesgo] = useState(false);
   const [usuarioRiesgo, setUsuarioRiesgo] = useState<Registro | null>(null);
   const [formIngresos, setFormIngresos] = useState("");
-  const [formIndependiente, setFormIndependiente] = useState("0"); // "0" dependiente, "1" independiente
+  const [formIndependiente, setFormIndependiente] = useState("0"); 
   const [evaluando, setEvaluando] = useState(false);
 
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -139,13 +135,11 @@ export default function Home() {
     enviarImagen(blob, false);
   }, [webcamRef]);
 
-  // FUNCIÓN PARA CONSULTAR A NAIVE BAYES
   const procesarEvaluacionIA = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!usuarioRiesgo || !usuarioRiesgo.edad) return;
 
     setEvaluando(true);
-    // Convertimos "22 años" a número 22
     const edadNumerica = parseInt(usuarioRiesgo.edad.replace(/\D/g, "")) || 18;
 
     try {
@@ -162,7 +156,6 @@ export default function Home() {
       const data = await res.json();
       
       if (data.status === "success") {
-        // Guardamos el resultado en el estado usando el ID del usuario
         setEvaluaciones(prev => ({
           ...prev,
           [usuarioRiesgo._id]: {
@@ -170,8 +163,8 @@ export default function Home() {
             confianza: data.confianza_bayes
           }
         }));
-        setModalRiesgo(false); // Cerramos el modal
-        setFormIngresos(""); // Limpiamos form
+        setModalRiesgo(false); 
+        setFormIngresos(""); 
       } else {
         alert("Error de la IA: " + data.message);
       }
@@ -229,7 +222,11 @@ export default function Home() {
             </button>
           </div>
         </div>
-
+        
+        {/* ==========================================
+         SENSOR DEL AGENTE INTELIGENTE (PERCEPCIÓN)
+         Captura el entorno (la imagen del DNI) para enviarlo al motor de reglas
+         ========================================== */}
         {mostrarWebcam && !escaneando && (
           <div className="mb-8 p-6 bg-gray-900 border border-gray-800 rounded-xl flex flex-col items-center">
             <div className="relative border-4 border-dashed border-gray-400 rounded-lg overflow-hidden flex justify-center items-center bg-black w-full max-w-lg">

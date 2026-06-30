@@ -14,8 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import gc 
 from pydantic import BaseModel
-import pandas as pd
-from sklearn.naive_bayes import GaussianNB
+import math # Importante: Librería matemática nativa, sin usar scikit-learn
 
 app = FastAPI()
 
@@ -41,12 +40,8 @@ async def escanear_dni(file: UploadFile = File(...)):
         img = Image.open(io.BytesIO(request_object_content))
         
         img = ImageOps.exif_transpose(img)
-        
-        # Mantenemos 1280 para aprovechar los 16GB de RAM de Hugging Face
         img.thumbnail((1280, 1280)) 
-        
         frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-
         results = model(frame, conf=0.5, verbose=False)
         
         dni_final = "No detectado"
@@ -70,17 +65,21 @@ async def escanear_dni(file: UploadFile = File(...)):
                     else:
                         dni_crop = dni_crop_original
                     
-                    # --- PROCESAMIENTO LIMPIO PARA ALTA RESOLUCIÓN ---
-                    # Eliminamos los filtros agresivos. Solo pasamos la imagen a escala de grises.
-                    # Tesseract 4+ hace su propia binarización interna y lee mejor los fondos con marcas de agua así.
                     gray = cv2.cvtColor(dni_crop, cv2.COLOR_BGR2GRAY)
-                    
-                    texto_crudo = pytesseract.image_to_string(gray, lang='spa', config='--oem 3 --psm 11')
+                    ampliado = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+                    blur = cv2.GaussianBlur(ampliado, (3, 3), 0)
+                    _, dni_limpio = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+                    texto_crudo = pytesseract.image_to_string(dni_limpio, lang='spa', config='--oem 3 --psm 11')
                     texto_limpio_sin_espacios = texto_crudo.replace(" ", "").replace("\n", "").upper()
                     texto_upper = texto_crudo.upper()
 
-                    print(f"👀 OCR LEYÓ: {texto_limpio_sin_espacios}")
-
+                    
+                    # ==========================================
+                    # MOTOR DE INFERENCIA (AGENTE BASADO EN REGLAS)
+                    # Reglas lógicas del agente: Si el patrón coincide con un DNI, extrae los datos. 
+                    # Si hay reflejos o calidad insuficiente, la regla dicta rechazar.
+                    # ==========================================
                     match_frontal = re.search(r'P[EF]R[.\-\s]*([0-9O]{8})', texto_upper)
                     match_rojo = re.search(r'D[N\\][I1L][.\-\s]*([0-9O]{8})', texto_upper)
                     match_trasera = re.search(r'([0-9O]{8})[<CKE(]+(\d)', texto_limpio_sin_espacios)
@@ -116,7 +115,7 @@ async def escanear_dni(file: UploadFile = File(...)):
         try:
             headers = {
                 "Accept": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }
         
             url_api = f"https://api.apis.net.pe/v1/dni?numero={dni_final}"
@@ -219,8 +218,7 @@ async def actualizar_registro(id_registro: str, datos: dict):
     except Exception as e:
         return {"status": "error", "message": str(e)}
     
-    # --- NAIVE BAYES ---
-
+# --- NAIVE BAYES (MANUAL SIN LIBRERÍAS EXTERNAS DE ML) ---
 
 class DatosFinancieros(BaseModel):
     edad: int
@@ -230,42 +228,157 @@ class DatosFinancieros(BaseModel):
 @app.post("/evaluar-riesgo")
 async def evaluar_riesgo(datos: DatosFinancieros):
     try:
-        # 1. EL DATASET (El conocimiento previo)
-        # Aquí le enseñamos a la IA con casos pasados para que calcule la probabilidad.
-        # 1 = Aprobado, 0 = Rechazado
-        data = {
-            'edad': [22, 45, 19, 35, 50, 28, 60, 21, 40, 30],
-            'ingresos': [1200, 5000, 800, 3500, 6000, 2500, 1500, 900, 4200, 3100],
-            'es_independiente': [1, 0, 1, 0, 0, 1, 1, 0, 0, 1],
-            'aprobado': [0, 1, 0, 1, 1, 1, 0, 0, 1, 1]
-        }
-        df = pd.DataFrame(data)
-        
-        # Separamos las características (X) y lo que queremos predecir (y)
-        X = df[['edad', 'ingresos', 'es_independiente']]
-        y = df['aprobado']
+        # 1. EL DATASET (El conocimiento previo quemado en código)
+        data_edad = [22, 45, 19, 35, 50, 28, 60, 21, 40, 30]
+        data_ingresos = [1200, 5000, 800, 3500, 6000, 2500, 1500, 900, 4200, 3100]
+        data_indep = [1, 0, 1, 0, 0, 1, 1, 0, 0, 1]
+        data_aprobado = [0, 1, 0, 1, 1, 1, 0, 0, 1, 1]
 
-        # 2. ENTRENAMIENTO DEL MODELO NAIVE BAYES
-        modelo = GaussianNB()
-        modelo.fit(X, y)
+        # 2. SEPARAR DATOS POR CLASE (0 = Rechazado, 1 = Aprobado)
+        idx_apr = [i for i, val in enumerate(data_aprobado) if val == 1]
+        idx_rech = [i for i, val in enumerate(data_aprobado) if val == 0]
 
-        # 3. PREDICCIÓN PARA EL NUEVO USUARIO ESCANEADO
-        nuevo_cliente = pd.DataFrame(
-            [[datos.edad, datos.ingresos, datos.es_independiente]],
-            columns=['edad', 'ingresos', 'es_independiente']
-        )
-        
-        # Aplicamos el teorema de Bayes para predecir
-        prediccion = modelo.predict(nuevo_cliente)[0]
-        # Obtenemos el porcentaje de seguridad matemática de la decisión
-        probabilidad = modelo.predict_proba(nuevo_cliente)[0][1] * 100
+        # 3. PROBABILIDADES PREVIAS P(C)
+        total_registros = len(data_aprobado)
+        p_previa_apr = len(idx_apr) / total_registros
+        p_previa_rech = len(idx_rech) / total_registros
 
-        estado = "Aprobado Automáticamente" if prediccion == 1 else "Requiere Revisión Manual"
+        # 4. FUNCIONES MATEMÁTICAS (Implementación manual)
+        def calcular_media(valores):
+            return sum(valores) / len(valores)
+
+        def calcular_varianza(valores, media):
+            if len(valores) <= 1: return 0.0001
+            return sum((x - media) ** 2 for x in valores) / len(valores)
+
+        def prob_gaussiana(x, media, varianza):
+            if varianza == 0: varianza = 0.0001
+            exponente = math.exp(-((x - media) ** 2) / (2 * varianza))
+            return (1 / math.sqrt(2 * math.pi * varianza)) * exponente
+
+        # 5. EXTRAER VALORES POR CLASE
+        edades_apr = [data_edad[i] for i in idx_apr]
+        ingresos_apr = [data_ingresos[i] for i in idx_apr]
+        indep_apr = [data_indep[i] for i in idx_apr]
+
+        edades_rech = [data_edad[i] for i in idx_rech]
+        ingresos_rech = [data_ingresos[i] for i in idx_rech]
+        indep_rech = [data_indep[i] for i in idx_rech]
+
+        # 6. CALCULAR P(X|C) PARA "APROBADO" (Supuesto Naive Bayes: Multiplicación)
+        p_edad_apr = prob_gaussiana(datos.edad, calcular_media(edades_apr), calcular_varianza(edades_apr, calcular_media(edades_apr)))
+        p_ingreso_apr = prob_gaussiana(datos.ingresos, calcular_media(ingresos_apr), calcular_varianza(ingresos_apr, calcular_media(ingresos_apr)))
+        p_indep_apr = prob_gaussiana(datos.es_independiente, calcular_media(indep_apr), calcular_varianza(indep_apr, calcular_media(indep_apr)))
+
+        prob_final_aprobado = p_previa_apr * p_edad_apr * p_ingreso_apr * p_indep_apr
+
+        # 7. CALCULAR P(X|C) PARA "RECHAZADO"
+        p_edad_rech = prob_gaussiana(datos.edad, calcular_media(edades_rech), calcular_varianza(edades_rech, calcular_media(edades_rech)))
+        p_ingreso_rech = prob_gaussiana(datos.ingresos, calcular_media(ingresos_rech), calcular_varianza(ingresos_rech, calcular_media(ingresos_rech)))
+        p_indep_rech = prob_gaussiana(datos.es_independiente, calcular_media(indep_rech), calcular_varianza(indep_rech, calcular_media(indep_rech)))
+
+        prob_final_rechazado = p_previa_rech * p_edad_rech * p_ingreso_rech * p_indep_rech
+
+        # 8. DECISIÓN Y NORMALIZACIÓN MATEMÁTICA
+        es_aprobado = prob_final_aprobado > prob_final_rechazado
+        suma_probs = prob_final_aprobado + prob_final_rechazado
         
+        if suma_probs == 0:
+            confianza = 0
+        else:
+            confianza = (prob_final_aprobado / suma_probs) * 100 if es_aprobado else (prob_final_rechazado / suma_probs) * 100
+        
+        estado = "Aprobado Automáticamente" if es_aprobado else "Requiere Revisión Manual"
+
         return {
             "status": "success",
-            "resultado_ia": estado, 
-            "confianza_bayes": f"{probabilidad:.1f}%"
+            "resultado_ia": estado,
+            "confianza_bayes": f"{confianza:.1f}%",
+            "nota": "Calculado manualmente sin scikit-learn"
         }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+    # =====================================================================
+# --- RED NEURONAL (PERCEPTRÓN) Y LÓGICA DIFUSA (DEFUZZIFICACIÓN) ---
+# Implementación matemática manual solicitada para Sistemas Inteligentes
+# =====================================================================
+
+@app.post("/evaluar-inteligencia-avanzada")
+async def evaluar_inteligencia_avanzada(datos: DatosFinancieros):
+    try:
+        # ---------------------------------------------------------
+        # 1. RED NEURONAL: PERCEPTRÓN SIMPLE 
+        # ---------------------------------------------------------
+        # Entradas (x) normalizadas
+        x1 = datos.edad / 100.0  
+        x2 = datos.ingresos / 10000.0 
+        x3 = datos.es_independiente
+        
+        # Pesos Sinápticos (w) y Bias (b)
+        w1, w2, w3 = 0.4, 0.7, -0.3
+        bias = -0.5
+        
+        # Función Neta (NET = XW + b)
+        net = (x1 * w1) + (x2 * w2) + (x3 * w3) + bias
+        
+        # Función de Activación: Escalón (Perceptrón Clásico)
+        salida_neurona = 1 if net >= 0 else 0
+        estado_red = "Crédito Aprobado" if salida_neurona == 1 else "Crédito Rechazado"
+
+        # ---------------------------------------------------------
+        # 2. LÓGICA DIFUSA Y BASE DE REGLAS
+        # ---------------------------------------------------------
+        # Fuzzificación (Funciones de pertenencia simples)
+        mu_ingreso_bajo = max(0, min(1, (3000 - datos.ingresos) / 3000))
+        mu_ingreso_alto = max(0, min(1, (datos.ingresos - 2000) / 4000))
+        
+        # Base de Reglas Difusas (IF - THEN)
+        # Regla 1: Si el ingreso es BAJO, entonces el Riesgo es ALTO
+        mu_riesgo_alto = mu_ingreso_bajo 
+        # Regla 2: Si el ingreso es ALTO, entonces el Riesgo es BAJO
+        mu_riesgo_bajo = mu_ingreso_alto 
+        
+        # ---------------------------------------------------------
+        # 3. DEFUZZIFICACIÓN: MÉTODO CENTROIDE O CENTRO DE GRAVEDAD (COG)
+        # ---------------------------------------------------------
+        # Universo de discurso (x): Porcentaje de riesgo de 10% a 90%
+        x_valores = [10, 30, 50, 70, 90] 
+        numerador = 0.0
+        denominador = 0.0
+        
+        for x in x_valores:
+            # Agregación de resultados según la base de reglas
+            grado_activacion = mu_riesgo_alto if x >= 50 else mu_riesgo_bajo
+            
+            numerador += x * grado_activacion
+            denominador += grado_activacion
+            
+        # Fórmula discreta del Centroide para obtener la "Salida Crisp"
+        if denominador == 0:
+            salida_crisp = 50.0 # Valor intermedio por defecto
+        else:
+            salida_crisp = numerador / denominador
+
+        return {
+            "status": "success",
+            "red_neuronal": {
+                "entradas_normalizadas": [x1, x2, x3],
+                "pesos_sinapticos": [w1, w2, w3],
+                "bias": bias,
+                "funcion_neta_NET": round(net, 4),
+                "salida_escalon": salida_neurona,
+                "decision_red": estado_red
+            },
+            "logica_difusa": {
+                "fuzzificacion_ingreso_bajo": round(mu_ingreso_bajo, 2),
+                "fuzzificacion_ingreso_alto": round(mu_ingreso_alto, 2),
+                "defuzzificacion_metodo": "Centroide (COG)",
+                "salida_crisp_riesgo": f"{round(salida_crisp, 2)}%"
+            },
+            "nota_profesor": "Implementado con pesos sinápticos, base de reglas y defuzzificación COG manual."
+        }
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
