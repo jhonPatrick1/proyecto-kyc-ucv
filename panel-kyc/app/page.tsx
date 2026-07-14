@@ -13,8 +13,10 @@ interface Registro {
 }
 
 interface EvaluacionIA {
-  estado: string;
-  confianza: string;
+  estado_bayes: string;
+  confianza_bayes: string;
+  estado_red_neuronal: string;
+  neta_calculada: number;
 }
 
 export default function Home() {
@@ -22,15 +24,19 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [escaneando, setEscaneando] = useState(false);
   
-  const [editandoId, setEditandoId] = useState<string | null>(null);
-  const [tempFecha, setTempFecha] = useState("");
+  // Estados para corrección manual de edad
+  const [editandoEdadId, setEditandoEdadId] = useState<string | null>(null);
+  const [tempEdad, setTempEdad] = useState("");
 
   const [mostrarWebcam, setMostrarWebcam] = useState(false);
 
   const [evaluaciones, setEvaluaciones] = useState<Record<string, EvaluacionIA>>({});
   const [modalRiesgo, setModalRiesgo] = useState(false);
   const [usuarioRiesgo, setUsuarioRiesgo] = useState<Registro | null>(null);
+  
+  // Estados del Formulario (Ahora incluye Deuda)
   const [formIngresos, setFormIngresos] = useState("");
+  const [formDeuda, setFormDeuda] = useState("");
   const [formIndependiente, setFormIndependiente] = useState("0"); 
   const [evaluando, setEvaluando] = useState(false);
 
@@ -75,22 +81,25 @@ export default function Home() {
     }
   };
 
-  const guardarCambio = async (id: string) => {
+  // Función adaptada para corregir la edad manualmente si el OCR falla
+  const guardarEdadManual = async (id: string, dni: string) => {
+    if (!tempEdad) return;
     try {
-      const res = await fetch(`${API_URL}/actualizar/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fecha_nacimiento: tempFecha }),
+      // Como el API actualiza fecha, mandamos una fecha ficticia que dé esa edad, o 
+      // idealmente deberías ajustar tu endpoint /actualizar para aceptar la edad directa.
+      // Por ahora actualizamos el estado local para la demo:
+      const nuevosRegistros = registros.map(reg => {
+        if(reg._id === id) {
+          return { ...reg, edad: `${tempEdad} años` };
+        }
+        return reg;
       });
-      const data = await res.json();
-      if (data.status === "success") {
-        setEditandoId(null);
-        cargarDatos(); 
-      } else {
-        alert("Error al actualizar: Asegúrate de usar el formato DD/MM/AAAA");
-      }
+      setRegistros(nuevosRegistros);
+      setEditandoEdadId(null);
+      setTempEdad("");
+      alert("Edad corregida localmente para la evaluación IA.");
     } catch (error) {
-      alert("Error de conexión al intentar actualizar.");
+      alert("Error al corregir la edad.");
     }
   };
 
@@ -139,37 +148,61 @@ export default function Home() {
     e.preventDefault();
     if (!usuarioRiesgo || !usuarioRiesgo.edad) return;
 
+    // Validación de seguridad para que la IA no reciba texto
+    if (usuarioRiesgo.edad.includes("No calculada") || usuarioRiesgo.edad.includes("Error")) {
+      alert("Debes corregir la edad manualmente antes de evaluar.");
+      return;
+    }
+
     setEvaluando(true);
     const edadNumerica = parseInt(usuarioRiesgo.edad.replace(/\D/g, "")) || 18;
+    const ingresosNumericos = parseFloat(formIngresos);
+    const deudaNumerica = parseFloat(formDeuda) || 0;
 
     try {
-      const res = await fetch(`${API_URL}/evaluar-riesgo`, {
+      // 1. Petición a Naive Bayes
+      const resBayes = await fetch(`${API_URL}/evaluar-riesgo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           edad: edadNumerica,
-          ingresos: parseFloat(formIngresos),
+          ingresos: ingresosNumericos,
           es_independiente: parseInt(formIndependiente)
         }),
       });
+      const dataBayes = await resBayes.json();
+
+      // 2. Petición a la Red Neuronal (Perceptrón)
+      const resRedNeuronal = await fetch(`${API_URL}/evaluar-kyc-red-neuronal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ingreso_mensual: ingresosNumericos,
+          deuda_actual: deudaNumerica,
+          edad: edadNumerica,
+          similitud_dni: 0.98 // Mock de seguridad biométrica
+        }),
+      });
+      const dataRedNeuronal = await resRedNeuronal.json();
       
-      const data = await res.json();
-      
-      if (data.status === "success") {
+      if (dataBayes.status === "success" && dataRedNeuronal.status === "success") {
         setEvaluaciones(prev => ({
           ...prev,
           [usuarioRiesgo._id]: {
-            estado: data.resultado_ia,
-            confianza: data.confianza_bayes
+            estado_bayes: dataBayes.resultado_ia,
+            confianza_bayes: dataBayes.confianza_bayes,
+            estado_red_neuronal: dataRedNeuronal.decision_final,
+            neta_calculada: dataRedNeuronal.matematica.funcion_neta_calculada
           }
         }));
         setModalRiesgo(false); 
         setFormIngresos(""); 
+        setFormDeuda("");
       } else {
-        alert("Error de la IA: " + data.message);
+        alert("Error en uno de los modelos de IA.");
       }
     } catch (error) {
-      alert("Error al conectar con el modelo Naive Bayes.");
+      alert("Error al conectar con los modelos de inteligencia artificial.");
     } finally {
       setEvaluando(false);
     }
@@ -184,7 +217,7 @@ export default function Home() {
             <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
               Sistema KYC & Credit Scoring
             </h1>
-            <p className="text-gray-400">Verificación de Identidad y Evaluación de Riesgo (IA)</p>
+            <p className="text-gray-400">Motor Dual: Redes Neuronales & Bayes</p>
           </div>
           
           <div className="flex flex-wrap gap-3">
@@ -201,8 +234,6 @@ export default function Home() {
               ref={galleryInputRef}
               onChange={handleGaleria}
               className="hidden"
-              aria-label="Subir imagen de DNI"
-              title="Subir imagen de DNI"
             />
 
             <button 
@@ -223,10 +254,6 @@ export default function Home() {
           </div>
         </div>
         
-        {/* ==========================================
-         SENSOR DEL AGENTE INTELIGENTE (PERCEPCIÓN)
-         Captura el entorno (la imagen del DNI) para enviarlo al motor de reglas
-         ========================================== */}
         {mostrarWebcam && !escaneando && (
           <div className="mb-8 p-6 bg-gray-900 border border-gray-800 rounded-xl flex flex-col items-center">
             <div className="relative border-4 border-dashed border-gray-400 rounded-lg overflow-hidden flex justify-center items-center bg-black w-full max-w-lg">
@@ -244,10 +271,6 @@ export default function Home() {
                   <div className="bg-black/80 text-green-400 text-xs font-bold text-center py-2 px-1">
                     Encuadre el DNI dentro del recuadro
                   </div>
-                  <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-green-500 rounded-tl-xl"></div>
-                  <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-green-500 rounded-tr-xl"></div>
-                  <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-green-500 rounded-bl-xl"></div>
-                  <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-green-500 rounded-br-xl"></div>
                 </div>
               </div>
             </div>
@@ -277,7 +300,7 @@ export default function Home() {
                     <th className="p-4 font-semibold">Usuario</th>
                     <th className="p-4 font-semibold">DNI</th>
                     <th className="p-4 font-semibold text-center">Edad</th>
-                    <th className="p-4 font-semibold text-center">Evaluación (IA)</th>
+                    <th className="p-4 font-semibold text-center">Evaluación Multi-Modelo (IA)</th>
                     <th className="p-4 font-semibold text-center">Acciones</th>
                   </tr>
                 </thead>
@@ -291,31 +314,68 @@ export default function Home() {
                       <td className="p-4 font-mono text-gray-300">
                         {reg.dni}
                       </td>
-                      <td className="p-4 text-center font-medium text-blue-400">
-                        {reg.edad || "-"}
+                      <td className="p-4 text-center font-medium">
+                        {/* VALIDACIÓN DE EDAD Y CORRECCIÓN MANUAL */}
+                        {editandoEdadId === reg._id ? (
+                           <div className="flex gap-2 justify-center">
+                             <input 
+                               type="number" 
+                               value={tempEdad}
+                               onChange={(e) => setTempEdad(e.target.value)}
+                               placeholder="Edad" 
+                               className="w-16 bg-gray-700 rounded px-2 text-center"
+                             />
+                             <button onClick={() => guardarEdadManual(reg._id, reg.dni)} className="text-green-400 hover:text-green-300">✓</button>
+                           </div>
+                        ) : (
+                          reg.edad?.includes("No calculada") || reg.edad?.includes("Error") ? (
+                            <button 
+                              onClick={() => setEditandoEdadId(reg._id)}
+                              className="text-xs bg-orange-500/20 text-orange-400 border border-orange-500/50 px-2 py-1 rounded shadow-sm hover:bg-orange-500/30"
+                            >
+                              ⚠️ Ingresar Manual
+                            </button>
+                          ) : (
+                            <span className="text-blue-400">{reg.edad}</span>
+                          )
+                        )}
                       </td>
                       
-                      {/* COLUMNA NAIVE BAYES */}
+                      {/* COLUMNA DUAL IA */}
                       <td className="p-4 text-center">
                         {evaluaciones[reg._id] ? (
-                          <div className="flex flex-col items-center">
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${
-                              evaluaciones[reg._id].estado === "Aprobado Automáticamente" 
-                                ? "bg-green-500/20 text-green-400 border border-green-500/30" 
-                                : "bg-red-500/20 text-red-400 border border-red-500/30"
+                          <div className="flex flex-col gap-2 items-center">
+                            {/* Chip Naive Bayes */}
+                            <div className={`px-3 py-1 rounded-full text-[11px] font-bold shadow-sm w-full max-w-[250px] ${
+                              evaluaciones[reg._id].estado_bayes === "Aprobado Automáticamente" 
+                                ? "bg-green-500/10 text-green-400 border border-green-500/30" 
+                                : "bg-orange-500/10 text-orange-400 border border-orange-500/30"
                             }`}>
-                              {evaluaciones[reg._id].estado}
-                            </span>
-                            <span className="text-[10px] text-gray-500 mt-1">
-                              Precisión Naive Bayes: {evaluaciones[reg._id].confianza}
-                            </span>
+                              Bayes: {evaluaciones[reg._id].confianza_bayes} - {evaluaciones[reg._id].estado_bayes === "Aprobado Automáticamente" ? "Aprobado" : "Revisión"}
+                            </div>
+                            
+                            {/* Chip Red Neuronal */}
+                            <div className={`px-3 py-1 rounded-full text-[11px] font-bold shadow-sm w-full max-w-[250px] ${
+                              evaluaciones[reg._id].neta_calculada >= 0
+                                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" 
+                                : "bg-red-500/20 text-red-400 border border-red-500/40"
+                            }`}>
+                              Perceptrón: Net={evaluaciones[reg._id].neta_calculada} - {evaluaciones[reg._id].neta_calculada >= 0 ? "Aprobado" : "Fraude/Riesgo"}
+                            </div>
                           </div>
                         ) : (
                            <button 
-                             onClick={() => { setUsuarioRiesgo(reg); setModalRiesgo(true); }}
-                             className="text-xs bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/40 px-3 py-1.5 rounded transition-colors"
+                             onClick={() => { 
+                               if(reg.edad?.includes("No calculada") || reg.edad?.includes("Error")) {
+                                 alert("Corrige la edad manualmente primero.");
+                                 return;
+                               }
+                               setUsuarioRiesgo(reg); 
+                               setModalRiesgo(true); 
+                             }}
+                             className="text-xs bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/40 px-3 py-1.5 rounded transition-colors flex items-center gap-2 mx-auto"
                            >
-                             🧠 Evaluar Riesgo
+                             🧠 Evaluar Motores IA
                            </button>
                         )}
                       </td>
@@ -345,31 +405,47 @@ export default function Home() {
         )}
       </div>
 
-      {/* MODAL DE FORMULARIO NAIVE BAYES */}
+      {/* MODAL DE FORMULARIO COMBINADO (BAYES + RED NEURONAL) */}
       {modalRiesgo && usuarioRiesgo && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-gray-900 border border-gray-700 p-6 rounded-xl w-full max-w-md shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold text-white">Perfilamiento Crediticio</h3>
+              <h3 className="text-xl font-bold text-white">Evaluación Multi-Modelo</h3>
               <button onClick={() => setModalRiesgo(false)} className="text-gray-400 hover:text-white">✕</button>
             </div>
             
-            <p className="text-sm text-gray-400 mb-6">
-              Ingresa los datos financieros de <strong className="text-blue-400">{usuarioRiesgo.nombres}</strong>. El algoritmo Naive Bayes cruzará esto con su edad ({usuarioRiesgo.edad}) para calcular el riesgo.
+            <p className="text-xs text-gray-400 mb-6">
+              Evaluando a <strong className="text-blue-400">{usuarioRiesgo.nombres}</strong> ({usuarioRiesgo.edad}).<br/>
+              <span className="text-indigo-400 border-b border-indigo-400/30 pb-1 inline-block mt-2">Naive Bayes:</span> Analizará Ingresos y Situación.<br/>
+              <span className="text-emerald-400 border-b border-emerald-400/30 pb-1 inline-block mt-1">Red Neuronal:</span> Analizará Ingresos, Deuda y Similitud DNI.
             </p>
 
             <form onSubmit={procesarEvaluacionIA} className="flex flex-col gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Ingresos Mensuales (S/)</label>
-                <input 
-                  type="number" 
-                  required 
-                  min="0"
-                  value={formIngresos}
-                  onChange={(e) => setFormIngresos(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors"
-                  placeholder="Ej: 2500"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">Ingreso (S/)</label>
+                  <input 
+                    type="number" 
+                    required 
+                    min="0"
+                    value={formIngresos}
+                    onChange={(e) => setFormIngresos(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors text-sm"
+                    placeholder="Ej: 2500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-emerald-400 mb-1">Deuda (S/)</label>
+                  <input 
+                    type="number" 
+                    required 
+                    min="0"
+                    value={formDeuda}
+                    onChange={(e) => setFormDeuda(e.target.value)}
+                    className="w-full bg-gray-800 border border-emerald-600/50 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors text-sm"
+                    placeholder="Ej: 800"
+                  />
+                </div>
               </div>
 
               <div>
@@ -388,9 +464,9 @@ export default function Home() {
               <button 
                 type="submit" 
                 disabled={evaluando}
-                className="mt-4 w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 py-3 rounded-lg font-bold text-white transition-all shadow-lg shadow-blue-900/30 flex justify-center items-center gap-2"
+                className="mt-4 w-full bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 py-3 rounded-lg font-bold text-white transition-all shadow-lg shadow-emerald-900/30 flex justify-center items-center gap-2"
               >
-                {evaluando ? "Calculando Probabilidad..." : "🤖 Ejecutar Modelo IA"}
+                {evaluando ? "Ejecutando Modelos..." : "🧠 Disparar Inteligencia Artificial"}
               </button>
             </form>
           </div>

@@ -220,6 +220,54 @@ async def actualizar_registro(id_registro: str, datos: dict):
     
 # --- NAIVE BAYES (MANUAL SIN LIBRERÍAS EXTERNAS DE ML) ---
 
+class DatosKycRedNeuronal(BaseModel):
+    ingreso_mensual: float
+    deuda_actual: float
+    edad: int
+    similitud_dni: float
+
+@app.post("/evaluar-kyc-red-neuronal")
+async def evaluar_kyc_red_neuronal(datos: DatosKycRedNeuronal):
+    try:
+        # 1. Matriz de Entrada (X) -> Datos que llegan del cliente
+        X = [datos.ingreso_mensual, datos.deuda_actual, datos.edad, datos.similitud_dni]
+        
+        # 2. Matriz de Pesos Sinápticos (W) y Sesgo (b) -> Calibración de la red
+        # W1: Ingreso(+), W2: Deuda(-), W3: Edad(+), W4: Similitud DNI (El más crítico)
+        W = [0.0005, -0.002, 0.01, 5.5]
+        b = -4.5 
+        
+        # 3. Cálculo de la Función Neta (Sumatoria de X * W + b)
+        neta = 0.0
+        for i in range(len(X)):
+            neta += X[i] * W[i]
+        neta += b
+        
+        # 4. Función de Activación (Escalón / Hardlim) -> Aplasta el resultado a 1 o 0
+        if neta >= 0:
+            salida = 1
+            estado = "Aprobado: Bajo Riesgo / Identidad Verificada"
+        else:
+            salida = 0
+            estado = "Rechazado: Alerta de Fraude / Alto Riesgo"
+            
+        return {
+            "status": "success",
+            "arquitectura": {
+                "matriz_X_entradas": X,
+                "matriz_W_pesos": W,
+                "sesgo_b": b,
+            },
+            "matematica": {
+                "funcion_neta_calculada": round(neta, 4),
+                "salida_activacion": salida
+            },
+            "decision_final": estado
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    
 class DatosFinancieros(BaseModel):
     edad: int
     ingresos: float
@@ -302,8 +350,6 @@ async def evaluar_riesgo(datos: DatosFinancieros):
 
     # =====================================================================
 # --- RED NEURONAL (PERCEPTRÓN) Y LÓGICA DIFUSA (DEFUZZIFICACIÓN) ---
-# Implementación matemática manual solicitada para Sistemas Inteligentes
-# =====================================================================
 
 @app.post("/evaluar-inteligencia-avanzada")
 async def evaluar_inteligencia_avanzada(datos: DatosFinancieros):
@@ -323,7 +369,7 @@ async def evaluar_inteligencia_avanzada(datos: DatosFinancieros):
         # Función Neta (NET = XW + b)
         net = (x1 * w1) + (x2 * w2) + (x3 * w3) + bias
         
-        # Función de Activación: Escalón (Perceptrón Clásico)
+        # Función de Activación: Escalón 
         salida_neurona = 1 if net >= 0 else 0
         estado_red = "Crédito Aprobado" if salida_neurona == 1 else "Crédito Rechazado"
 
@@ -335,9 +381,9 @@ async def evaluar_inteligencia_avanzada(datos: DatosFinancieros):
         mu_ingreso_alto = max(0, min(1, (datos.ingresos - 2000) / 4000))
         
         # Base de Reglas Difusas (IF - THEN)
-        # Regla 1: Si el ingreso es BAJO, entonces el Riesgo es ALTO
+        # Regla 1: 
         mu_riesgo_alto = mu_ingreso_bajo 
-        # Regla 2: Si el ingreso es ALTO, entonces el Riesgo es BAJO
+        # Regla 2: 
         mu_riesgo_bajo = mu_ingreso_alto 
         
         # ---------------------------------------------------------
