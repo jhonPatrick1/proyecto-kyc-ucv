@@ -77,8 +77,6 @@ async def escanear_dni(file: UploadFile = File(...)):
                     
                     # ==========================================
                     # MOTOR DE INFERENCIA (AGENTE BASADO EN REGLAS)
-                    # Reglas lógicas del agente: Si el patrón coincide con un DNI, extrae los datos. 
-                    # Si hay reflejos o calidad insuficiente, la regla dicta rechazar.
                     # ==========================================
                     match_frontal = re.search(r'P[EF]R[.\-\s]*([0-9O]{8})', texto_upper)
                     match_rojo = re.search(r'D[N\\][I1L][.\-\s]*([0-9O]{8})', texto_upper)
@@ -218,7 +216,7 @@ async def actualizar_registro(id_registro: str, datos: dict):
     except Exception as e:
         return {"status": "error", "message": str(e)}
     
-# --- NAIVE BAYES (MANUAL SIN LIBRERÍAS EXTERNAS DE ML) ---
+# --- RED NEURONAL MULTICAPA (MLP) ---
 
 class DatosKycRedNeuronal(BaseModel):
     ingreso_mensual: float
@@ -226,37 +224,68 @@ class DatosKycRedNeuronal(BaseModel):
     edad: int
     similitud_dni: float
 
+import math
+
+def sigmoide(x):
+    # Evitar desbordamiento matemático (overflow)
+    if x < -700: return 0.0
+    if x > 700: return 1.0
+    return 1 / (1 + math.exp(-x))
+
 @app.post("/evaluar-kyc-red-neuronal")
 async def evaluar_kyc_red_neuronal(datos: DatosKycRedNeuronal):
     try:
-        # 1. Matriz de Entrada (X) -> Datos que llegan del cliente
-        X = [datos.ingreso_mensual, datos.deuda_actual, datos.edad, datos.similitud_dni]
-        
-        # 2. Matriz de Pesos Sinápticos (W) y Sesgo (b) -> Calibración de la red
-        # W1: Ingreso(+), W2: Deuda(-), W3: Edad(+), W4: Similitud DNI (El más crítico)
-        W = [0.0005, -0.002, 0.01, 5.5]
-        b = -4.5 
-        
-        # 3. Cálculo de la Función Neta (Sumatoria de X * W + b)
-        neta = 0.0
-        for i in range(len(X)):
-            neta += X[i] * W[i]
-        neta += b
-        
-        # 4. Función de Activación (Escalón / Hardlim) -> Aplasta el resultado a 1 o 0
+        # 1. Normalización de Entradas 
+        X = [datos.ingreso_mensual / 10000.0, 
+             datos.deuda_actual / 10000.0, 
+             datos.edad / 100.0, 
+             datos.similitud_dni]
+
+        # 2. Pesos de la Capa Oculta (Sigmoid Nodes 1 al 4)
+        # Cada lista representa: [Ingreso, Deuda, Edad, Similitud]
+        W_oculta = [
+            [-2.189, -0.858, 1.560, -9.708], # Nodo 1
+            [-8.092, 12.491, -3.768, -0.484], # Nodo 2
+            [-0.688, 0.107, 0.367, -4.260],   # Nodo 3
+            [1.011, 1.130, 0.144, -0.540]     # Nodo 4
+        ]
+        b_oculta = [3.892, -0.537, 3.022, -0.633]
+
+        # Calcular salida de la capa oculta
+        h = []
+        for i in range(4):
+            suma = sum(X[j] * W_oculta[i][j] for j in range(4)) + b_oculta[i]
+            h.append(sigmoide(suma))
+
+        # 3. Pesos de la Capa de Salida (Linear Node 0)
+        W_salida = [-2.879, -2.158, 1.163, 0.010]
+        b_salida = 0.733
+
+        # Calcular Función Neta final
+        neta = sum(h[i] * W_salida[i] for i in range(4)) + b_salida
+
+        # Impresión en terminal para auditar los pesos en vivo ante el profesor
+        print("\n--- AUDITORÍA DE PESOS CARGADOS ---")
+        print(f"Capa Oculta (W1): {W_oculta}")
+        print(f"Capa Salida (W2): {W_salida}")
+        print(f"Valor Neta Calculado: {neta}")
+        print("-----------------------------------\n")
+
+        # 4. Función de Activación Escalón (Hardlim) y Clasificación
         if neta >= 0:
             salida = 1
             estado = "Aprobado: Bajo Riesgo / Identidad Verificada"
         else:
             salida = 0
             estado = "Rechazado: Alerta de Fraude / Alto Riesgo"
-            
+
+        # Respuesta estructurada para el frontend
         return {
             "status": "success",
             "arquitectura": {
                 "matriz_X_entradas": X,
-                "matriz_W_pesos": W,
-                "sesgo_b": b,
+                "matrices_de_pesos": "Capa Oculta (4x4) y Capa Salida (4x1)",
+                "sesgo_salida": b_salida
             },
             "matematica": {
                 "funcion_neta_calculada": round(neta, 4),
@@ -291,7 +320,7 @@ async def evaluar_riesgo(datos: DatosFinancieros):
         p_previa_apr = len(idx_apr) / total_registros
         p_previa_rech = len(idx_rech) / total_registros
 
-        # 4. FUNCIONES MATEMÁTICAS (Implementación manual)
+        # 4. FUNCIONES MATEMÁTICAS 
         def calcular_media(valores):
             return sum(valores) / len(valores)
 
